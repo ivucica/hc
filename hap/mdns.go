@@ -17,17 +17,19 @@ type MDNSService struct {
 	port               int
 	protocol           string // Protocol version (pv) (Default 1.0)
 	id                 string
-	configuration      int64 // c#
-	state              int64 // s#
-	mfiCompliant       bool  // ff
-	reachable          bool  // sf
-	categoryIdentifier int64 // ci (see AccessoryType)
+	configuration      int64  // c#
+	state              int64  // s#
+	mfiCompliant       bool   // ff
+	reachable          bool   // sf
+	categoryIdentifier int64  // ci (see AccessoryType)
+	hostname           string // overrides hostname in mdns
 
 	server *bonjour.Server
 }
 
 // NewMDNSService returns a new service based for the bridge name, id and port.
-func NewMDNSService(name string, id string, ip string, port int, category int64) *MDNSService {
+// If hostname is specified, it overrides the machine hostname. Hostname should end with a .
+func NewMDNSService(name string, id string, ip string, port int, category int64, hostname string) *MDNSService {
 	return &MDNSService{
 		name:               name,
 		ip:                 ip,
@@ -39,6 +41,7 @@ func NewMDNSService(name string, id string, ip string, port int, category int64)
 		mfiCompliant:       false,
 		reachable:          true,
 		categoryIdentifier: category,
+		hostname:           hostname,
 	}
 }
 
@@ -53,8 +56,11 @@ func (s *MDNSService) SetReachable(r bool) {
 
 // Publish announces the service for the machine's ip address on a random port using mDNS.
 func (s *MDNSService) Publish() error {
-	// Host should end with '.'
 	hostname, _ := os.Hostname()
+	if s.hostname != "" {
+		hostname = s.hostname
+	}
+	// Host should end with '.'
 	host := fmt.Sprintf("%s.", strings.Trim(hostname, "."))
 	text := s.txtRecords()
 

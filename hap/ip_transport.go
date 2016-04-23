@@ -24,12 +24,23 @@ type Config struct {
 	// When empty, the tranport stores the data inside a folder named exactly like the accessory
 	StoragePath string
 
-	// Port on which transport is reachable e.g. 12345
+	// Port on which transport is listening e.g. 12345
 	// When empty, the transport uses a random port
 	Port string
 
-	// IP on which clients can connect.
+	// Port on which transport is advertised via Bonjour, and on which clients can connect.
+	// When empty, matches Port.
+	// Useful if there is a proxy in between.
+	AdvertisedPort string
+
+	// IP on which connections are accepted.
 	IP string
+
+	// IP advertised on Bonjour on which the clients can connect.
+	AdvertisedIP string
+
+	// Hostname advertised on Bonjour. If empty, uses OS-provided hostname.
+	Hostname string
 
 	// Pin with has to be entered on iOS client to pair with the accessory
 	// When empty, the pin 00102003 is used
@@ -83,10 +94,13 @@ func NewIPTransport(config Config, a *accessory.Accessory, as ...*accessory.Acce
 	}
 
 	default_config := Config{
-		StoragePath: name,
-		Pin:         "00102003",
-		Port:        "",
-		IP:          ip.String(),
+		StoragePath:    name,
+		Pin:            "00102003",
+		Port:           "",
+		IP:             ip.String(),
+		AdvertisedPort: "",
+		AdvertisedIP:   "",
+		Hostname:       "",
 	}
 
 	if dir := config.StoragePath; len(dir) > 0 {
@@ -103,6 +117,22 @@ func NewIPTransport(config Config, a *accessory.Accessory, as ...*accessory.Acce
 
 	if ip := config.IP; len(ip) > 0 {
 		default_config.IP = ip
+	}
+
+	if advertisedPort := config.AdvertisedPort; len(advertisedPort) > 0 {
+		default_config.AdvertisedPort = ":" + advertisedPort
+	} else {
+		default_config.AdvertisedPort = default_config.Port
+	}
+
+	if advertisedIP := config.AdvertisedIP; len(advertisedIP) > 0 {
+		default_config.AdvertisedIP = advertisedIP
+	} else {
+		default_config.AdvertisedIP = default_config.IP
+	}
+
+	if hostname := config.Hostname; len(hostname) > 0 {
+		default_config.Hostname = hostname
 	}
 
 	storage, err := util.NewFileStorage(default_config.StoragePath)
@@ -160,13 +190,21 @@ func (t *ipTransport) Start() {
 	t.server = s
 
 	// Publish accessory ip
-	ip := t.config.IP
-	log.Println("[INFO] Accessory IP is", ip)
+	ip := t.config.AdvertisedIP
+	log.Println("[INFO] Accessory IP is", ip, "-- listening IP is", t.config.IP)
 
-	// Publish server port which might be different then `t.config.Port`
-	portInt64 := to.Int64(s.Port())
+	var portInt64 int64
+	if t.config.AdvertisedPort != t.config.Port {
+		// Publish advertised port, whatever that is.
+		portInt64 = to.Int64(t.config.AdvertisedPort[1:])
+		log.Printf("[INFO] Advertising port: %s %d", t.config.AdvertisedPort, portInt64)
+	} else {
+		// Publish server port, which might be different than `t.config.Port`
+		portInt64 = to.Int64(s.Port())
+		log.Printf("[INFO] Advertising listening port: %s %d", s.Port(), portInt64)
+	}
 
-	mdns := NewMDNSService(t.name, t.device.Name(), ip, int(portInt64), int64(t.container.AccessoryType()))
+	mdns := NewMDNSService(t.name, t.device.Name(), ip, int(portInt64), int64(t.container.AccessoryType()), t.config.Hostname)
 	t.mdns = mdns
 
 	// Paired accessories must not be reachable for other clients since iOS 9
